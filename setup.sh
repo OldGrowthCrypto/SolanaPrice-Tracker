@@ -1,15 +1,34 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Install Old Growth Price Tracker into the user GNOME Shell extensions dir.
+set -euo pipefail
 
-UUID="crypto@alipirpiran.github"
-HOME_DIR="$HOME"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+UUID="price-tracker@oldgrowthcrypto.com"
+DEST="${HOME}/.local/share/gnome-shell/extensions/${UUID}"
 
-if [ ! -z $1 ]; then
-  HOME_DIR="$1"
+if [[ "$ROOT" == "$DEST" ]]; then
+  glib-compile-schemas "${DEST}/schemas/"
+  echo "Already in install path: $DEST"
+  echo "Schemas recompiled. Enable with: gnome-extensions enable ${UUID}"
+  exit 0
 fi
 
-echo $HOME_DIR
+mkdir -p "$DEST"
+rsync -a --delete \
+  --exclude '.git' \
+  --exclude '*.zip' \
+  --exclude 'pack.sh' \
+  --exclude 'setup.sh' \
+  "$ROOT"/ "$DEST"/
 
-mkdir -p "$HOME_DIR/.local/share/gnome-shell/extensions/$UUID"
-cp -r ./* "$HOME_DIR/.local/share/gnome-shell/extensions/$UUID/"
+# Keep helper scripts in the install tree too (handy for re-pack)
+cp -f "$ROOT/pack.sh" "$DEST/pack.sh" 2>/dev/null || true
+cp -f "$ROOT/setup.sh" "$DEST/setup.sh" 2>/dev/null || true
+chmod +x "$DEST/pack.sh" "$DEST/setup.sh" 2>/dev/null || true
 
-gnome-extensions enable "$UUID"
+glib-compile-schemas "${DEST}/schemas/"
+
+echo "Installed to: $DEST"
+echo "Enable with:"
+echo "  gnome-extensions enable ${UUID}"
+echo "On Wayland, log out/in (or restart GNOME Shell) if the extension is not listed yet."

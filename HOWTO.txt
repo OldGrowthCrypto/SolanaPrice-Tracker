@@ -1,0 +1,196 @@
+================================================================================
+  SOLANA CRYPTO PRICE TRACKER — README / HOW-TO
+  GNOME Shell extension for Solana users
+  by Old Growth Crypto  ·  oldgrowthcrypto.com  ·  @OldGrowthCrypto
+================================================================================
+
+WHAT IT IS
+----------
+A Linux GNOME desktop extension that shows live crypto prices on your top bar.
+Built for Solana users: track SOL, JUP, BONK, and any token by contract address
+(mint), with icons and green/red 24h coloring.
+
+LINKS
+-----
+  Website:           https://oldgrowthcrypto.com
+  GitHub (source):   https://github.com/OldGrowthCrypto/SolanaPrice-Tracker
+  GNOME Extensions:  https://extensions.gnome.org/
+  X / Twitter:       https://x.com/OldGrowthCrypto
+
+  UUID:              price-tracker@oldgrowthcrypto.com
+  GNOME versions:    46, 47, 48, 49, 50
+
+
+================================================================================
+INSTALL FROM GITHUB (SOURCE)
+================================================================================
+
+  1. Open a terminal.
+
+  2. Clone the repo:
+
+       git clone https://github.com/OldGrowthCrypto/SolanaPrice-Tracker.git
+       cd SolanaPrice-Tracker
+
+  3. Run the installer (copies files into your user extensions folder):
+
+       ./setup.sh
+
+  4. Enable the extension:
+
+       gnome-extensions enable price-tracker@oldgrowthcrypto.com
+
+  5. Reload GNOME Shell:
+       - Wayland: log out and log back in (or reboot)
+       - X11:     Alt+F2, type  r  , press Enter
+
+  6. You should see price chips on the top bar (BTC, SOL, JUP, etc.).
+
+
+================================================================================
+INSTALL FROM ZIP
+================================================================================
+
+  ./pack.sh
+  gnome-extensions install -f ./oldgrowth-price-tracker.shell-extension.zip
+  gnome-extensions enable price-tracker@oldgrowthcrypto.com
+
+  Then reload GNOME Shell as above.
+
+
+================================================================================
+INSTALL FROM GNOME EXTENSIONS WEBSITE
+================================================================================
+
+  1. Visit:  https://extensions.gnome.org/
+  2. Search for:  Solana Crypto Price Tracker
+     (or open the extension page once it is published)
+  3. Use the browser extension / toggle to install, or download the zip
+     and install with gnome-extensions install -f <file>.zip
+  4. Enable and reload Shell as above.
+
+
+================================================================================
+HOW TO USE
+================================================================================
+
+  TOP BAR
+    • Shows up to 5 selected coins with optional icons and live prices.
+    • Prices color green when 24h change is up, red when down.
+    • Width grows automatically so all selected coins stay visible.
+
+  OPEN THE MENU
+    • Click the extension area on the top bar.
+    • Header shows the app icon + "Solana Crypto Price Tracker".
+    • Scroll the list of ecosystem / custom tokens.
+
+  OPTIONS
+    • Click "Options" in the menu.
+    • Add token by Solana contract address (mint).
+    • Add by pair.
+    • Toggle which coins appear on the top bar.
+    • Edit name/mint, upload custom icons, delete rows.
+    • Prefer mint icons over ticker art for custom CAs.
+
+  PIN TO BAR
+    • Flip the switch on a coin row to show/hide it on the top bar.
+    • Maximum 5 coins on the bar at once.
+
+  ADD A CUSTOM SOLANA TOKEN
+    1. Open Options (or use Add token if shown).
+    2. Paste the mint / contract address (base58).
+    3. Optionally set a short ticker name.
+    4. Confirm — price loads via Jupiter; icon via DexScreener when available.
+    5. Toggle the switch if you want it on the top bar.
+
+  REFRESH
+    • Use the refresh button in the menu header for a manual price update.
+    • Prices also refresh on a timer automatically.
+
+
+================================================================================
+REQUIREMENTS
+================================================================================
+
+  • GNOME Shell 46 or newer (tested path: 46–50)
+  • Internet connection for price APIs
+  • Packages (Debian/Ubuntu examples):
+      sudo apt install libglib2.0-bin rsync zip
+
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+  Extension not listed after install
+    • Confirm install path:
+        ls ~/.local/share/gnome-shell/extensions/price-tracker@oldgrowthcrypto.com
+    • On Wayland, fully log out/in.
+    • Check:
+        gnome-extensions list
+        gnome-extensions info price-tracker@oldgrowthcrypto.com
+
+  Enable fails / crash
+    • View Shell logs:
+        journalctl -f -o cat /usr/bin/gnome-shell
+    • Recompile schemas:
+        glib-compile-schemas \
+          ~/.local/share/gnome-shell/extensions/price-tracker@oldgrowthcrypto.com/schemas/
+
+  No prices / "Loading"
+    • Check network and firewall.
+    • Public APIs (Jupiter, Coinbase) may rate-limit; wait and refresh.
+
+  Wrong icon for a custom mint
+    • Custom Solana CAs use mint-based icons, not ticker name maps
+      (e.g. a token titled "ADA" will not use Cardano art).
+    • Upload a custom icon in Options / Edit if needed.
+
+  Reinstall from a clean copy
+    ./setup.sh
+    gnome-extensions disable price-tracker@oldgrowthcrypto.com
+    gnome-extensions enable price-tracker@oldgrowthcrypto.com
+    # then reload Shell
+
+
+================================================================================
+DEVELOPMENT
+================================================================================
+
+  Edit source in this folder, then:
+
+    ./setup.sh
+    # reload GNOME Shell
+
+  Pack for release / extensions.gnome.org:
+
+    ./pack.sh
+    # produces: oldgrowth-price-tracker.shell-extension.zip
+
+  Key files:
+    extension.js     — main UI + panel chips
+    settings.js      — GSettings
+    prefs.js         — preferences window
+    api/             — prices, catalog, HTTP
+    models/          — menu rows, options dialog
+    utils/icons.js   — icons + mint logo fetch
+    stylesheet.css   — look and feel
+    metadata.json    — UUID, name, shell-version
+
+
+================================================================================
+LICENSE & CREDITS
+================================================================================
+
+  License: MIT (see LICENSE file)
+  Upstream: Crypto Price Tracker for GNOME Shell by Ali Pirpiran
+            https://github.com/alipirpiran/Crypto-Price-Tracker-for-Gnome-Shell
+
+  Solana ecosystem contribution by Old Growth Crypto.
+  Free to use, fork, and share.
+
+
+================================================================================
+  Built with roots for the Solana community  🌲
+  https://oldgrowthcrypto.com
+================================================================================

@@ -1,122 +1,408 @@
-.menu-item-text {
+/* Old Growth Price Tracker — high-contrast, clean Solana desk UI */
+
+/* —— Options modal —— */
+.og-options-dialog .modal-dialog {
+  min-width: 480px;
+  max-width: 560px;
+}
+
+.og-options-root {
+  min-width: 440px;
+  padding: 4px 2px;
+}
+
+.og-options-row {
+  spacing: 8px;
+  padding: 2px 0;
+}
+
+.og-options-switch-row {
+  spacing: 12px;
+  padding: 4px 0;
+}
+
+/* —— Top panel: all selected prices visible (up to 5) —— */
+.og-panel-box {
+  spacing: 2px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.og-panel-chip {
+  spacing: 3px;
+  padding: 0 2px;
+}
+
+.og-panel-coin-icon {
+  margin-right: 1px;
+}
+
+.og-panel-ticker {
   font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #ffffff;
+  padding-right: 2px;
 }
 
-.add-coin-btn {
-  min-width: 300px;
-  padding-right: 20px;
+.og-panel-price {
+  font-size: 0.88em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  padding-left: 1px;
 }
 
-.crypto-label {
-  min-width: 50px;
-  margin-left: 5px;
-  margin-right: 5px;
-  padding: 5px;
+.og-panel-price-line {
+  font-size: 0.88em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  padding-left: 4px;
 }
 
-.crypto-input {
-  margin-left: 5px;
-  margin-right: 5px;
-  padding: 5px;
+.og-panel-price.change-up {
+  color: #0a7a3e;
 }
 
-.crypto-input.btn {
-  padding-left: 5px;
-  padding-right: 5px;
+.og-panel-price.change-down {
+  color: #c62828;
+}
+
+.og-panel-price.change-flat {
+  color: inherit;
+}
+
+.og-panel-sep {
+  font-size: 0.85em;
+  font-weight: 700;
+}
+
+.og-panel-divider {
+  width: 1px;
+  height: 14px;
+  background-color: rgba(0, 0, 0, 0.22);
+  margin: 0 3px;
+}
+
+.og-panel-text,
+.og-panel-placeholder {
+  font-size: 0.88em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* —— Popup: light, readable surface —— */
+.og-header-item {
+  padding: 12px 14px 10px 14px;
+  min-width: 400px;
+  background-color: #ffffff;
+  border-radius: 0;
+}
+
+.og-options-menu-item {
+  font-weight: 700;
+  min-width: 400px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.og-options-menu-item:hover {
+  background-color: rgba(153, 69, 255, 0.12);
+}
+
+.og-header-title-row {
+  spacing: 12px;
+}
+
+.og-brand-icon {
+  margin-right: 2px;
   border-radius: 10px;
+}
+
+.og-header-titles {
+  spacing: 2px;
+  padding-left: 4px;
+}
+
+/* User asked for black title — high contrast on any shell theme */
+.og-header-title {
+  font-size: 1.08em;
+  font-weight: 800;
+  color: #111111;
+  letter-spacing: 0.01em;
+}
+
+.og-header-subtitle {
+  font-size: 0.74em;
+  font-weight: 600;
+  color: #333333;
+  letter-spacing: 0.02em;
+}
+
+.og-refresh-btn {
+  padding: 7px;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.og-refresh-btn:hover {
+  background-color: rgba(153, 69, 255, 0.22);
+}
+
+/* —— Sections —— */
+.og-section-item {
+  padding: 10px 16px 4px 16px;
+  min-width: 400px;
+  background-color: #f7f7f9;
+}
+
+.og-section-label {
+  font-size: 0.72em;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #111111;
+}
+
+.og-panel-count {
+  font-size: 0.72em;
+  font-weight: 700;
+  color: #333333;
+  padding: 0 16px 6px 16px;
+}
+
+/* —— Coin list —— */
+.og-coins-base {
+  padding: 0;
+  min-width: 400px;
+  background-color: #f7f7f9;
+}
+
+.og-coins-scroll {
+  padding: 0;
+}
+
+.og-coins-list {
+  spacing: 6px;
+  padding: 6px 12px 10px 12px;
+  background-color: #f7f7f9;
+}
+
+.og-coin-row {
+  padding: 10px 12px;
+  margin: 0;
+  border-radius: 12px;
+  background-color: #ffffff;
   border-width: 1px;
+  border-color: rgba(0, 0, 0, 0.08);
+  spacing: 10px;
+  min-width: 372px;
 }
 
-.btn {
-  padding-left: 5px;
-  padding-right: 5px;
-  border-radius: 10px;
-}
-.btn:hover {
-  background-color: #87cefa;
+.og-coin-row:hover {
+  background-color: #f0ebff;
+  border-color: rgba(153, 69, 255, 0.35);
 }
 
-.exchange-btn {
-  min-width: 110px;
-  border-color: #00bfff;
-  border-width: 1px;
-  margin-left: 5px;
-  margin-right: 5px;
-  border-radius: 10px;
-  margin-bottom: 10px;
-}
-.exchange-btn:checked {
-  background-color: #00bfff;
-  color: #fffaf0;
+.og-coin-row-active {
+  border-color: rgba(10, 122, 62, 0.45);
+  background-color: #eefaf3;
 }
 
-.exchange-hbox {
-  padding: 3px;
-  margin-bottom: 5px;
+.coin-icon {
+  margin-right: 0;
 }
 
-.p0 {
-  padding: 0px;
-  border-spacing: 0px;
+.og-coin-name-col {
+  spacing: 2px;
+  min-width: 100px;
 }
 
-.m0 {
-  margin: 0px;
+.og-coin-title-row {
+  spacing: 6px;
 }
 
-.coinItem {
-  /* padding-top: 3px; */
-  /* padding-bottom: 3px; */
-  padding-left: 0px;
-  /* padding-right: 0px; */
-  margin-left: 0px;
-  /* margin-right: 0px; */
-  margin-inline-start: 0px;
-  padding-block-start: 0px;
-  /* margin: 0; */
-  /* width: 100%; */
+.og-coin-name {
+  font-weight: 800;
+  font-size: 0.98em;
+  color: #111111;
+  letter-spacing: 0.02em;
 }
 
-.itemLabel {
-  min-width: 60px;
+.og-badge-panel {
+  font-size: 0.58em;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  background-color: #0a7a3e;
+  border-radius: 4px;
+  padding: 1px 5px;
 }
 
-.text-align-right {
+.og-coin-pair {
+  font-size: 0.7em;
+  font-weight: 600;
+  color: #444444;
+  letter-spacing: 0.02em;
+}
+
+.og-coin-quote-col {
+  spacing: 2px;
+  min-width: 96px;
+  padding-right: 2px;
+}
+
+.og-coin-price {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.98em;
   text-align: right;
+  color: #111111;
 }
 
-.color {
-  background-color: red;
+.og-coin-price.change-up {
+  color: #0a7a3e;
 }
 
-.exchange-icon {
-  background-size: 15px;
-  height: 18px;
-  width: 18px;
+.og-coin-price.change-down {
+  color: #c62828;
 }
 
-.exchange-icon.binance {
-  background-image: url('assets/icons/binance.ico');
+.og-coin-change {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.76em;
+  text-align: right;
+  padding: 1px 0;
 }
 
-.exchange-icon.coingecko {
-  background-image: url('assets/icons/coingecko.ico');
+.og-coin-change.change-up {
+  color: #0a7a3e;
+  background-color: transparent;
 }
 
-.exchange-icon.crypto {
-  background-image: url('assets/icons/crypto.png');
+.og-coin-change.change-down {
+  color: #c62828;
+  background-color: transparent;
 }
 
-.exchange-icon.okx {
-  background-image: url('assets/icons/okx.png');
+.og-coin-change.change-flat {
+  color: #555555;
+  background-color: transparent;
 }
 
-.w18 {
-  width: 18px;
+.og-coin-actions {
+  spacing: 2px;
+  padding-left: 2px;
 }
 
-.sources-scrollview {
-  margin-bottom: 10px;
-  margin-top: 10px;
-  padding-bottom: 5px;
+.og-icon-btn {
+  padding: 5px 6px;
+  border-radius: 9px;
+  margin-left: 0;
+}
+
+.og-icon-btn:hover {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.og-switch-btn {
+  padding: 2px 4px;
+}
+
+.og-del-btn:hover {
+  background-color: rgba(198, 40, 40, 0.15);
+}
+
+/* —— Status —— */
+.og-status-item {
+  padding: 4px 16px 6px 16px;
+  background-color: #f7f7f9;
+}
+
+.og-status-row {
+  font-size: 0.74em;
+  font-weight: 600;
+  color: #333333;
+  letter-spacing: 0.01em;
+}
+
+/* —— Add by mint (always visible block) —— */
+.og-add-block {
+  padding: 10px 12px 12px 12px;
+  background-color: #ffffff;
+  border-radius: 12px;
+  margin: 4px 12px 8px 12px;
+  border-width: 1px;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.og-add-coin {
+  padding: 0;
+  background-color: transparent;
+}
+
+.og-add-coin-vbox {
+  spacing: 8px;
+  min-width: 360px;
+}
+
+.og-add-row {
+  spacing: 8px;
+}
+
+.og-input {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border-width: 1px;
+  border-color: rgba(0, 0, 0, 0.2);
+  background-color: #ffffff;
+  color: #111111;
+}
+
+.og-input-sm {
+  width: 72px;
+}
+
+.og-add-btn {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background-color: #14f195;
+  color: #111111;
+}
+
+.og-add-btn:hover {
+  background-color: #0fd987;
+}
+
+.og-hint {
+  font-size: 0.74em;
+  color: #333333;
+}
+
+.og-add-title {
+  font-size: 0.85em;
+  font-weight: 800;
+  color: #111111;
+}
+
+/* —— Footer —— */
+.og-footer-item {
+  padding: 8px 16px 12px 16px;
+  background-color: #f7f7f9;
+}
+
+.og-footer {
+  spacing: 10px;
+}
+
+.og-footer-link {
+  font-size: 0.78em;
+  font-weight: 700;
+  color: #111111;
+}
+
+.og-footer-handle {
+  font-size: 0.74em;
+  color: #333333;
 }
