@@ -1,0 +1,10 @@
+{
+  "uuid": "price-tracker@oldgrowthcrypto.com",
+  "name": "Solana Crypto Price Tracker",
+  "description": "Solana desk prices on your GNOME top bar.\n\nUp to 5 coins with icons. Options menu: add by contract or pair, custom icons, show/hide icons, white or green/red prices.\n\nBy Old Growth Crypto — oldgrowthcrypto.com · @OldGrowthCrypto",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "url": "https://github.com/OldGrowthCrypto/solana-crypto-price-tracker",
+  "version": 10,
+  "settings-schema": "org.gnome.shell.extensions.oldgrowth-price-tracker",
+  "gettext-domain": "oldgrowth-price-tracker"
+}
