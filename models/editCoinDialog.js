@@ -1,5 +1,5 @@
 /* Edit token dialog — label, pair, mint, icon
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: MIT
  */
 
 import Clutter from 'gi://Clutter';

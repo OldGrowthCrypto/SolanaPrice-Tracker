@@ -7,7 +7,6 @@ import * as Settings from '../settings.js';
 import {
   isLikelyMint,
   shortMint,
-  MAX_PANEL_COINS,
 } from '../api/catalog.js';
 import { lookupMint } from '../api/jupiter.js';
 import { installCustomIcon } from '../utils/icons.js';
@@ -147,8 +146,9 @@ export const AddCoinMenuItem = GObject.registerClass(
         icon_path = installCustomIcon(this.Me.path, iconSrc, id) || '';
       }
 
+      const maxPanel = Settings.getMaxPanelCoins();
       const activeCount = Settings.getCoins().filter(c => c.active).length;
-      const putOnPanel = activeCount < MAX_PANEL_COINS;
+      const putOnPanel = activeCount < maxPanel;
 
       const coin = {
         id,
