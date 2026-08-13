@@ -75,19 +75,30 @@ export function escapeMarkup(s) {
 export const PRICE_COLOR_WHITE = '#ffffff';
 export const PRICE_COLOR_UP = '#14f195';
 export const PRICE_COLOR_DOWN = '#ff6b7a';
+export const PRICE_COLOR_STALE = '#f0c674';
 
 /**
  * Panel price color. Never returns black.
  * @param {number|null|undefined} change
  * @param {boolean} colorize when false, always white
+ * @param {boolean} [stale]
  */
-export function priceColor(change, colorize = false) {
+export function priceColor(change, colorize = false, stale = false) {
+  if (stale) return PRICE_COLOR_STALE;
   if (!colorize) return PRICE_COLOR_WHITE;
   if (change === null || change === undefined || Number.isNaN(change))
     return PRICE_COLOR_WHITE;
   if (change > 0.005) return PRICE_COLOR_UP;
   if (change < -0.005) return PRICE_COLOR_DOWN;
   return PRICE_COLOR_WHITE;
+}
+
+/**
+ * Structure key for panel chip set.
+ * @param {Array<{id: string}>} active
+ */
+export function panelStructureKey(active) {
+  return (active || []).map(c => c.id).join('|');
 }
 
 /**

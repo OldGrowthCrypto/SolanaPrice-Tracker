@@ -9,13 +9,41 @@ import {
   resolveIconStem,
 } from '../utils/icons.js';
 import { formatPrice, formatChange } from '../utils/format.js';
-import { chartUrl } from '../api/coingecko.js';
-import { shortMint, MAX_PANEL_COINS } from '../api/catalog.js';
+import {
+  shortMint,
+  isLikelyMint,
+  resolveSwapMint,
+} from '../api/catalog.js';
+import {
+  chartUrlForProvider,
+  jupiterSwapSolUrl,
+  jupiterUrl,
+} from '../api/dexscreener.js';
+import { isQuoteStale } from '../api/prices.js';
 import { openEditCoinDialog } from './editCoinDialog.js';
+import { openCoinAlertDialog } from './coinAlertDialog.js';
 
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Util from 'resource:///org/gnome/shell/misc/util.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+function _openUrl(url) {
+  try {
+    Util.spawnCommandLine(`xdg-open '${String(url).replace(/'/g, "'\\''")}'`);
+  } catch (err) {
+    Main.notifyError(`Cannot open ${url}`, String(err));
+  }
+}
+
+function _copyText(text) {
+  try {
+    const clipboard = St.Clipboard.get_default();
+    clipboard.set_text(St.ClipboardType.CLIPBOARD, String(text || ''));
+    Main.notify('Solana Crypto Price Tracker', 'Copied to clipboard');
+  } catch (e) {
+    Main.notifyError('Copy failed', String(e));
+  }
+}
 
 export const CoinMenuItem = GObject.registerClass(
   class CoinMenuItem extends PopupMenu.PopupBaseMenuItem {
@@ -31,12 +59,18 @@ export const CoinMenuItem = GObject.registerClass(
       this.symbol = coin.symbol;
       this.coingecko_id = coin.coingecko_id || '';
       this.mint = coin.mint || '';
+      this.swap_mint = coin.swap_mint || '';
       this.activeCoin = !!coin.active;
       this.title = coin.title || coin.symbol?.split('/')[0] || '?';
       this.subtitle = coin.subtitle || '';
       this.pinned = false;
       this.key = coin.key || '';
+      this.order = typeof coin.order === 'number' ? coin.order : 0;
       this.icon_path = coin.icon_path || '';
+      this.chart_provider = coin.chart_provider || '';
+      this.alert_enabled = !!coin.alert_enabled;
+      this.alert_up_pct = coin.alert_up_pct > 0 ? coin.alert_up_pct : null;
+      this.alert_down_pct = coin.alert_down_pct > 0 ? coin.alert_down_pct : null;
       this.iconStem = resolveIconStem(coin);
       this._icon_path = this.icon_path;
       this.panelMenu = panelMenu;
@@ -51,7 +85,38 @@ export const CoinMenuItem = GObject.registerClass(
       this.accessible_role = Atk.Role.CHECK_MENU_ITEM;
       this.checkAccessibleState();
 
-      const coinIcon = createCoinIconFromCoin(extensionPath, coin, 28);
+      // Compact reorder strip: drag handle + up/down (horizontal = shorter rows)
+      const orderCol = new St.BoxLayout({
+        vertical: false,
+        y_align: Clutter.ActorAlign.CENTER,
+        style_class: 'og-order-col',
+      });
+      const gripIcon = new St.Icon({
+        icon_name: 'open-menu-symbolic',
+        style_class: 'popup-menu-icon',
+        icon_size: 12,
+      });
+      this._gripBtn = new St.Button({
+        child: gripIcon,
+        style_class: 'og-icon-btn og-drag-handle',
+        reactive: true,
+        can_focus: true,
+        track_hover: true,
+      });
+      this._gripBtn.connect('button-press-event', (_a, event) => {
+        if (this.panelMenu && this.panelMenu.busy) return Clutter.EVENT_STOP;
+        if (this.panelMenu && this.panelMenu.beginCoinDrag)
+          this.panelMenu.beginCoinDrag(this, event);
+        return Clutter.EVENT_STOP;
+      });
+      this._upBtn = this._actionBtn('go-up-symbolic', () => this._move(-1));
+      this._downBtn = this._actionBtn('go-down-symbolic', () => this._move(1));
+      orderCol.add_child(this._gripBtn);
+      orderCol.add_child(this._upBtn);
+      orderCol.add_child(this._downBtn);
+      this.add_child(orderCol);
+
+      const coinIcon = createCoinIconFromCoin(extensionPath, coin, 20);
       coinIcon.y_align = Clutter.ActorAlign.CENTER;
       this.add_child(coinIcon);
 
@@ -107,89 +172,171 @@ export const CoinMenuItem = GObject.registerClass(
         y_align: Clutter.ActorAlign.CENTER,
       });
 
-      // Edit
       this._editBtn = this._actionBtn('document-edit-symbolic', () =>
         this._editCoin(),
       );
       actions.add_child(this._editBtn);
 
-      // Chart
+      // Per-coin alerts / chart preference popup
+      this._alertBtn = this._actionBtn(
+        'preferences-system-notifications-symbolic',
+        () => this._openAlertDialog(),
+      );
+      actions.add_child(this._alertBtn);
+
+      // Chart (provider: DexScreener / Birdeye / Jupiter — set in alert popup)
       this._chartBtn = this._actionBtn('web-browser-symbolic', () =>
         this._openChart(),
       );
       actions.add_child(this._chartBtn);
 
-      // Switch (on bar) + optional full hint
-      const switchCol = new St.BoxLayout({
-        vertical: true,
-        y_align: Clutter.ActorAlign.CENTER,
-        style_class: 'og-switch-col',
-      });
+      // Swap + copy: price mint or swap_mint (e.g. BTC → portal wBTC on Solana)
+      const swapMint = resolveSwapMint(this) || '';
+      const hasSwap = !!(swapMint && isLikelyMint(swapMint));
+      const copyMint =
+        this.mint && isLikelyMint(this.mint)
+          ? this.mint
+          : hasSwap
+            ? swapMint
+            : '';
+      const hasCopy = !!copyMint;
+
+      this._swapBtn = this._actionBtn(
+        'emblem-synchronizing-symbolic',
+        () => this._openSwap(),
+        hasSwap,
+      );
+      actions.add_child(this._swapBtn);
+
+      this._copyBtn = this._actionBtn(
+        'edit-copy-symbolic',
+        () => {
+          if (hasCopy) _copyText(copyMint);
+        },
+        hasCopy,
+      );
+      actions.add_child(this._copyBtn);
+
       const switchBin = new St.Bin({
         child: this._switch,
         y_align: Clutter.ActorAlign.CENTER,
         style_class: 'og-switch-btn',
       });
-      switchCol.add_child(switchBin);
+      actions.add_child(switchBin);
+      // Compact “full” hint shown via status row; keep tiny label only when needed
       this._fullHint = new St.Label({
         text: '',
         style_class: 'og-full-hint',
       });
       this._fullHint.set_style(
-        'font-size: 0.65em; font-weight: 700; color: #c62828; min-height: 0;',
+        'font-size: 0.58em; font-weight: 700; color: #c62828; min-height: 0;',
       );
-      switchCol.add_child(this._fullHint);
-      actions.add_child(switchCol);
+      // not stacked under switch — keeps row short
       this._switch.connect('notify::state', () => {
         if (this._toggling) return;
         this._onSwitchChanged();
       });
 
-      // Trash — button-press so it always fires
       this._delBtn = this._actionBtn('user-trash-symbolic', () =>
         this._delCoin(),
       );
       actions.add_child(this._delBtn);
 
       this.add_child(actions);
-      this._actionButtons = [this._editBtn, this._chartBtn, this._delBtn].filter(
-        Boolean,
-      );
+      this._actionButtons = [
+        this._gripBtn,
+        this._upBtn,
+        this._downBtn,
+        this._editBtn,
+        this._alertBtn,
+        this._chartBtn,
+        this._swapBtn,
+        this._copyBtn,
+        this._delBtn,
+      ].filter(Boolean);
 
       this._price = null;
       this._change24h = null;
+      this._quoteSource = '';
+      this._quoteTs = 0;
+      this._dropHighlight = false;
     }
 
-    _actionBtn(iconName, cb) {
+    _move(delta) {
+      if (this.panelMenu && this.panelMenu.busy) return;
+      const ok = Settings.moveCoin(
+        {
+          id: this.id,
+          key: this.key,
+          mint: this.mint,
+          coingecko_id: this.coingecko_id,
+          symbol: this.symbol,
+          title: this.title,
+        },
+        delta,
+      );
+      if (ok) {
+        if (this.panelMenu.onListChanged)
+          this.panelMenu.onListChanged('Order updated');
+        else this.panelMenu.rebuildCoins();
+      }
+    }
+
+    setDropTarget(on) {
+      this._dropHighlight = !!on;
+      if (on) this.add_style_class_name('og-coin-row-drop');
+      else this.remove_style_class_name('og-coin-row-drop');
+    }
+
+    setDragging(on) {
+      if (on) this.add_style_class_name('og-coin-row-dragging');
+      else this.remove_style_class_name('og-coin-row-dragging');
+    }
+
+    /**
+     * @param {string} iconName
+     * @param {Function} cb
+     * @param {boolean} [active=true] when false: dimmed, no action (layout spacer)
+     */
+    _actionBtn(iconName, cb, active = true) {
       const icon = new St.Icon({
         icon_name: iconName,
         style_class: 'popup-menu-icon',
-        icon_size: 14,
+        icon_size: 12,
       });
       const btn = new St.Button({
         child: icon,
-        style_class: 'og-icon-btn',
-        reactive: true,
-        can_focus: true,
-        track_hover: true,
+        style_class: active ? 'og-icon-btn' : 'og-icon-btn og-icon-btn-inactive',
+        reactive: !!active,
+        can_focus: !!active,
+        track_hover: !!active,
+        opacity: active ? 255 : 90,
       });
-      btn.connect('button-press-event', (_a, _event) => {
-        if (this.panelMenu && this.panelMenu.busy) return Clutter.EVENT_STOP;
-        try {
-          cb();
-        } catch (e) {
-          console.error('OldGrowthPriceTracker: action failed', e);
-        }
-        return Clutter.EVENT_STOP;
-      });
+      btn._ogInactive = !active;
+      if (active) {
+        btn.connect('button-press-event', (_a, _event) => {
+          if (this.panelMenu && this.panelMenu.busy) return Clutter.EVENT_STOP;
+          try {
+            cb();
+          } catch (e) {
+            console.error('OldGrowthPriceTracker: action failed', e);
+          }
+          return Clutter.EVENT_STOP;
+        });
+      }
       return btn;
     }
 
     setActionsEnabled(enabled) {
       const on = !!enabled;
-      if (this._editBtn) this._editBtn.reactive = on;
-      if (this._chartBtn) this._chartBtn.reactive = on;
-      if (this._delBtn) this._delBtn.reactive = on;
+      for (const b of this._actionButtons || []) {
+        // Keep layout-only placeholders non-reactive
+        if (b._ogInactive) {
+          b.reactive = false;
+          continue;
+        }
+        b.reactive = on;
+      }
       if (this._switch) this._switch.reactive = on;
     }
 
@@ -213,21 +360,23 @@ export const CoinMenuItem = GObject.registerClass(
         return;
       }
 
+      const maxPanel = Settings.getMaxPanelCoins();
+
       if (wantOn) {
         const othersOn = this.panelMenu.coins.filter(
           c => c !== this && c.activeCoin,
         ).length;
-        if (othersOn >= MAX_PANEL_COINS) {
+        if (othersOn >= maxPanel) {
           this._toggling = true;
           this._switch.state = false;
           this._toggling = false;
-          if (this._fullHint) this._fullHint.text = `Full ${MAX_PANEL_COINS}/${MAX_PANEL_COINS}`;
+          if (this._fullHint) this._fullHint.text = `Full ${maxPanel}/${maxPanel}`;
           if (this.panelMenu._statusRow) {
-            this.panelMenu._statusRow.text = `Bar full (${MAX_PANEL_COINS}/${MAX_PANEL_COINS}) — turn one off first`;
+            this.panelMenu._statusRow.text = `Bar full (${maxPanel}/${maxPanel}) — turn one off first`;
           }
           Main.notify(
             'Solana Crypto Price Tracker',
-            `Top bar can show at most ${MAX_PANEL_COINS} coins.`,
+            `Top bar can show at most ${maxPanel} coins.`,
           );
           return;
         }
@@ -249,7 +398,6 @@ export const CoinMenuItem = GObject.registerClass(
         this.activeCoin,
       );
 
-      // Force structure rebuild so width adjusts
       this.panelMenu._updatePanelLabel(true);
       if (this.panelMenu._refreshStatusText)
         this.panelMenu._refreshStatusText();
@@ -261,26 +409,36 @@ export const CoinMenuItem = GObject.registerClass(
         this.changeLbl.text = '—';
         this.changeLbl.style_class = 'og-coin-change change-flat';
         this.priceLbl.style_class = 'og-coin-price';
-        this.priceLbl.set_style('color: #222222; font-weight: 800;');
-        this.changeLbl.set_style('color: #555555;');
+        this.priceLbl.remove_style_class_name('og-stale');
         this._price = null;
         this._change24h = null;
+        this._quoteSource = '';
+        this._quoteTs = 0;
         return;
       }
 
       this._price = data.price;
       this._change24h = data.change24h;
+      this._quoteSource = data.source || '';
+      this._quoteTs = data.timestamp || 0;
+
+      const stale = isQuoteStale(data);
       this.priceLbl.text = `$${formatPrice(data.price)}`;
 
       const c = formatChange(data.change24h);
-      this.changeLbl.text = c.text;
+      this.changeLbl.text = stale ? `${c.text} · stale` : c.text;
       this.changeLbl.style_class = `og-coin-change ${c.css}`;
-      this.priceLbl.style_class = `og-coin-price ${c.css}`;
+      this.priceLbl.style_class = stale
+        ? 'og-coin-price og-stale'
+        : `og-coin-price ${c.css}`;
 
       const colorize = Settings.getColorizePrices();
-      let pCol = '#222222';
-      let cCol = '#555555';
-      if (colorize) {
+      let pCol = 'inherit';
+      let cCol = 'inherit';
+      if (stale) {
+        pCol = '#b36b00';
+        cCol = '#b36b00';
+      } else if (colorize) {
         if (data.change24h > 0.005) {
           pCol = '#0a7a3e';
           cCol = '#0a7a3e';
@@ -289,12 +447,25 @@ export const CoinMenuItem = GObject.registerClass(
           cCol = '#c62828';
         }
       }
-      this.priceLbl.set_style(`color: ${pCol}; font-weight: 800;`);
-      this.changeLbl.set_style(`color: ${cCol}; font-weight: 700;`);
+      this.priceLbl.set_style(
+        pCol === 'inherit'
+          ? 'font-weight: 800;'
+          : `color: ${pCol}; font-weight: 800;`,
+      );
+      this.changeLbl.set_style(
+        cCol === 'inherit'
+          ? 'font-weight: 700;'
+          : `color: ${cCol}; font-weight: 700;`,
+      );
     }
 
     getQuote() {
-      return { price: this._price, change24h: this._change24h };
+      return {
+        price: this._price,
+        change24h: this._change24h,
+        source: this._quoteSource,
+        timestamp: this._quoteTs,
+      };
     }
 
     get state() {
@@ -310,7 +481,6 @@ export const CoinMenuItem = GObject.registerClass(
     }
 
     activate(event) {
-      // Don't toggle when interacting with action buttons area — only empty row body
       if (
         event &&
         event.type() === Clutter.EventType.KEY_PRESS &&
@@ -321,7 +491,6 @@ export const CoinMenuItem = GObject.registerClass(
         this._toggling = false;
         this._onSwitchChanged();
       }
-      // Mouse: only toggle via the switch (avoid accidental toggles when editing/deleting)
     }
 
     checkAccessibleState() {
@@ -343,6 +512,45 @@ export const CoinMenuItem = GObject.registerClass(
         /* ignore */
       }
       openEditCoinDialog(this.panelMenu, this._extension, this);
+    }
+
+    _openAlertDialog() {
+      try {
+        this.panelMenu.menu.close();
+      } catch (_e) {
+        /* ignore */
+      }
+      openCoinAlertDialog(this.panelMenu, this._extension, this);
+    }
+
+    _resolvedChartProvider() {
+      if (this.chart_provider) return this.chart_provider;
+      try {
+        return Settings.getDefaultChartProvider();
+      } catch (_e) {
+        return 'dexscreener';
+      }
+    }
+
+    _openChart() {
+      const provider = this._resolvedChartProvider();
+      const url = chartUrlForProvider(
+        this.mint || '',
+        provider,
+        this.coingecko_id || '',
+      );
+      _openUrl(url);
+    }
+
+    _openSwap() {
+      const mint = resolveSwapMint(this);
+      if (mint && isLikelyMint(mint))
+        _openUrl(jupiterSwapSolUrl(mint) || jupiterUrl(mint));
+      else
+        Main.notify(
+          'Solana Crypto Price Tracker',
+          'Jupiter swap needs a Solana mint',
+        );
     }
 
     _delCoin() {
@@ -380,7 +588,6 @@ export const CoinMenuItem = GObject.registerClass(
         return;
       }
 
-      // Immediate UI drop + rebuild (keeps menu usable)
       try {
         this.panelMenu.coins = this.panelMenu.coins.filter(c => c !== this);
       } catch (_e) {
@@ -396,18 +603,8 @@ export const CoinMenuItem = GObject.registerClass(
       }
     }
 
-    _openChart() {
-      let url;
-      if (this.mint) {
-        url = `https://dexscreener.com/solana/${this.mint}`;
-      } else {
-        url = chartUrl(this.coingecko_id);
-      }
-      try {
-        Util.spawnCommandLine(`xdg-open '${url.replace(/'/g, "'\\''")}'`);
-      } catch (err) {
-        Main.notifyError(`Cannot open ${url}`, String(err));
-      }
+    copyMint() {
+      if (this.mint) _copyText(this.mint);
     }
 
     destroy() {

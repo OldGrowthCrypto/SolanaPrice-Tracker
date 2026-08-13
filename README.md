@@ -1,151 +1,133 @@
 # Solana Crypto Price Tracker
 
-**Live Solana (and major) desk prices on your GNOME top bar**
+**Version 2.0** — Live Solana & major crypto prices on your GNOME top bar, with a clean watchlist dashboard.
 
 By [Old Growth Crypto](https://oldgrowthcrypto.com) · [@OldGrowthCrypto](https://x.com/OldGrowthCrypto)
 
 | | |
 |---|---|
-| **Website** | [oldgrowthcrypto.com](https://oldgrowthcrypto.com) |
+| **Version** | **2.0** |
 | **GitHub** | [github.com/OldGrowthCrypto/SolanaPrice-Tracker](https://github.com/OldGrowthCrypto/SolanaPrice-Tracker) |
 | **GNOME Extensions** | [extensions.gnome.org](https://extensions.gnome.org/) |
+| **Website** | [oldgrowthcrypto.com](https://oldgrowthcrypto.com) |
 | **Shell** | GNOME 46–50 |
 | **UUID** | `price-tracker@oldgrowthcrypto.com` |
+| **License** | MIT |
 
-Open-source contribution to the Solana + Linux desktop ecosystem: glanceable prices for builders, traders, and everyday Solana users.
-
-Forked from [Crypto Price Tracker](https://github.com/alipirpiran/Crypto-Price-Tracker-for-Gnome-Shell) (MIT).
+Open-source contribution to the **Solana × Linux** desktop ecosystem.
 
 ---
 
 ## Features
 
-- **Top bar chips** — up to 5 coins with icons, tickers, and live prices (green up / red down)
-- **Defaults** — BTC, SOL, JUP, BONK, JTO ready out of the box
-- **Solana ecosystem menu** — curated list (Pump, Render, Pengu, Trump, Pyth, WIF, and more)
-- **Add by contract address** — paste any Solana mint; prices via Jupiter (+ Coinbase for majors)
-- **Add by pair** — pair-style entries for flexible tracking
-- **Mint icons** — auto-fetch token logos (DexScreener / token list); custom icon upload
-- **Options modal** — toggle bar visibility, show/hide icons, price colors, edit & delete rows
-- **Clean Solana desk UI** — high-contrast light popup, purple accent, brand header
+### Top bar
+- Live chips for your pinned coins (icons, tickers, prices)
+- Green / red 24h coloring (optional)
+- Configurable max coins on bar (1–8)
+- Multi-source prices: **Jupiter → DexScreener → CoinGecko**; BTC via Coinbase + 24h change
+- Stale indicator when data is older than ~90s
+- HTTP retry + backoff on rate limits
+
+### Watchlist dashboard
+- Compact coin rows with price + 24h change
+- **Drag ☰** or **↑↓** to reorder (order sets panel priority)
+- List height fits content (no empty gap under last coin)
+- Action bar: **Add token** · **Options** · **Website**
+
+### Per-coin tools
+| Control | Action |
+|---------|--------|
+| ✏️ Edit | Rename / mint / icon |
+| 🔔 Alerts | Per-coin jump alerts (% up / % down) + chart site |
+| 🌐 Chart | Opens DexScreener, Birdeye, or Jupiter |
+| 🔄 Swap | Jupiter **SOL → token** (BTC uses portal wrapped BTC) |
+| 📋 Copy | Copy mint (or wBTC mint for BTC) |
+| Switch | Pin to top bar |
+
+### Options (compact)
+- Top bar: icons, tickers, colorize, max on bar
+- Refresh interval + refresh now
+- Default chart site
+- Export / import watchlist JSON, reset defaults, debug log
+
+### Add token
+- Add by pair/ticker or Solana contract address
+- Live mint preview (name, price, 24h)
 
 ---
 
-## Quick install (from source)
+## Install
+
+### From GitHub (source)
 
 ```bash
-# Clone
 git clone https://github.com/OldGrowthCrypto/SolanaPrice-Tracker.git
 cd SolanaPrice-Tracker
-
-# Install into ~/.local/share/gnome-shell/extensions/
 ./setup.sh
-
-# Enable
 gnome-extensions enable price-tracker@oldgrowthcrypto.com
 ```
 
-**Wayland:** log out and back in (or reboot) if the extension does not appear yet.  
-**X11:** you can also restart GNOME Shell with `Alt+F2`, type `r`, Enter.
+**Wayland:** log out and back in. **X11:** Alt+F2 → `r` → Enter.
 
-### Install from zip
+### From extension zip
 
 ```bash
-./pack.sh
 gnome-extensions install -f ./oldgrowth-price-tracker.shell-extension.zip
 gnome-extensions enable price-tracker@oldgrowthcrypto.com
 ```
 
-### GNOME Extensions website
+### Pack release locally
 
-Browse and install from: **[https://extensions.gnome.org/](https://extensions.gnome.org/)**  
-(Search for *Solana Crypto Price Tracker* once published.)
-
----
-
-## Usage
-
-1. Look at the **top bar** for your selected coins and prices.
-2. **Click the extension** to open the full menu and Solana ecosystem list.
-3. **Options** → manage coins, add by contract address or pair, icon prefs.
-4. Use the **switch** on a row to pin that token onto the top bar (max 5).
-5. **Trash** removes a coin; **edit** updates ticker / mint / icon.
-
-More detail: see **[HOWTO.txt](./HOWTO.txt)**.
+```bash
+./pack.sh
+# → oldgrowth-price-tracker.shell-extension.zip  (GNOME install)
+# → SolanaPrice-Tracker-v2.0.zip                 (full source + docs + extension zip)
+```
 
 ---
 
-## Requirements
+## Quick usage
 
-- GNOME Shell **46, 47, 48, 49, or 50**
-- Internet access (Jupiter / Coinbase / DexScreener price & icon APIs)
-- `glib-compile-schemas` (usually via `libglib2.0-bin` on Debian/Ubuntu)
-- `rsync`, `zip` for setup/pack scripts
+1. Click the top-bar prices to open **Solana Crypto Price Tracker**.
+2. Toggle switches to pin coins to the bar.
+3. **🔔** on a coin → set jump alert % up / down, chart site, open swap.
+4. **Add token** → paste a Solana mint or pair.
+5. **Options** → bar display, refresh, charts, import/export.
+
+Full guide: **[HOWTO.txt](./HOWTO.txt)** · Release notes: **[RELEASE.md](./RELEASE.md)**  
+GNOME website checklist: **[docs/GNOME-EXTENSIONS.md](./docs/GNOME-EXTENSIONS.md)**
 
 ---
 
 ## Project layout
 
 ```
-extension.js          Main indicator + menu
-prefs.js              GNOME Extensions prefs window
-settings.js           GSettings helpers
-stylesheet.css        Popup + panel styles
-metadata.json         Extension metadata (UUID, shell versions)
-schemas/              GSettings schema + compiled
-api/                  Catalog, prices, Jupiter, Coinbase, HTTP
-models/               Menu items, options dialog, add/edit flows
-utils/                Icons, formatting, crypto helpers
-assets/icons/         Bundled coin + brand icons
-setup.sh              Install to user extensions dir
-pack.sh               Build .shell-extension.zip
-HOWTO.txt             Install & usage guide (plain text)
+extension.js          Dashboard indicator, panel, alerts, drag
+prefs.js              Extension Settings (Display / Data / Alerts / Charts)
+settings.js           GSettings + seed + reorder + import/export
+stylesheet.css        Panel + dashboard styles
+api/                  request (retry), prices, jupiter, dexscreener, coingecko, catalog
+models/               coin rows, options, add token, per-coin alerts
+utils/                icons, format, coin normalize, log
+docs/                 GNOME Extensions packaging notes
+HOWTO.txt             Plain-text install & usage
+RELEASE.md            v2.0 release notes
+pack.sh / setup.sh    Build zip + local install
 ```
 
 ---
 
-## Develop / reload
+## Requirements
 
-```bash
-./setup.sh
-# Then reload GNOME Shell (X11: Alt+F2 → r) or log out/in (Wayland)
-gnome-extensions enable price-tracker@oldgrowthcrypto.com
-journalctl -f -o cat /usr/bin/gnome-shell   # optional: watch errors
-```
-
-Rebuild schemas after editing `schemas/*.xml`:
-
-```bash
-glib-compile-schemas schemas/
-```
-
----
-
-## Data sources
-
-| Source | Use |
-|--------|-----|
-| **Jupiter Price API** | Solana mint prices |
-| **Coinbase** | Major quotes (e.g. BTC) |
-| **DexScreener / token list** | Mint icons |
-
-No API key required for default public endpoints.
+- GNOME Shell 46+
+- Internet for price APIs
+- `glib-compile-schemas`, `rsync`, `zip` (for scripts)
 
 ---
 
 ## License
 
 MIT — see [LICENSE](./LICENSE).  
-Upstream: [alipirpiran/Crypto-Price-Tracker-for-Gnome-Shell](https://github.com/alipirpiran/Crypto-Price-Tracker-for-Gnome-Shell).
+Upstream lineage: [Crypto Price Tracker for GNOME Shell](https://github.com/alipirpiran/Crypto-Price-Tracker-for-Gnome-Shell).
 
----
-
-## Contributing to the ecosystem
-
-This extension is free and open source. Stars, issues, PRs, and shares help Linux + Solana users keep prices on-desk without leaving the terminal or browser tabs.
-
-- Report bugs / ideas on **GitHub Issues**
-- Follow **[@OldGrowthCrypto](https://x.com/OldGrowthCrypto)** for updates
-- Site: **[oldgrowthcrypto.com](https://oldgrowthcrypto.com)**
-
-Built with 🌲 by Old Growth Crypto.
+Built with 🌲 by **Old Growth Crypto** for Solana users on Linux.

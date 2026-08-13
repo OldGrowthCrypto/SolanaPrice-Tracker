@@ -1,52 +1,59 @@
 import { get } from './request.js';
+import { makeQuote } from './dexscreener.js';
+import { logDebug, logWarn } from '../utils/log.js';
 
 /**
  * Fetch USD prices (+ 24h change when available) for Solana mint addresses
  * via Jupiter Price API v3.
  *
  * @param {string[]} mints
- * @returns {Promise<Record<string, {price: number, change24h: number|null}>>}
+ * @returns {Promise<Record<string, {price: number, change24h: number|null, source: string, timestamp: number}>>}
  */
 export async function fetchMintPrices(mints) {
   const unique = [...new Set(mints.filter(Boolean))];
   if (unique.length === 0) return {};
 
   const url =
-    'https://api.jup.ag/price/v3?ids=' + unique.map(encodeURIComponent).join(',');
+    'https://api.jup.ag/price/v3?ids=' +
+    unique.map(encodeURIComponent).join(',');
   const res = await get(url);
   const json = JSON.parse(res.body);
   const out = {};
+  const now = Date.now();
 
   for (const mint of unique) {
     const row = json[mint];
     if (!row || row.usdPrice === undefined || row.usdPrice === null) continue;
-    out[mint] = {
-      price: Number(row.usdPrice),
-      change24h:
-        row.priceChange24h === undefined || row.priceChange24h === null
-          ? null
-          : Number(row.priceChange24h),
-    };
+    const price = Number(row.usdPrice);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    out[mint] = makeQuote(
+      price,
+      row.priceChange24h === undefined || row.priceChange24h === null
+        ? null
+        : Number(row.priceChange24h),
+      'jupiter',
+      now,
+    );
   }
 
+  logDebug(`Jupiter prices: ${Object.keys(out).length}/${unique.length} mints`);
   return out;
 }
 
 /**
  * Resolve symbol/name/icon for a mint via DexScreener (no API key).
  * @param {string} mint
- * @returns {Promise<{symbol: string, name: string, price: number|null, change24h: number|null, imageUrl: string}>}
+ * @returns {Promise<{symbol: string, name: string, price: number|null, change24h: number|null, imageUrl: string, mint: string}>}
  */
 export async function lookupMint(mint) {
-  // Prefer v1 token-pairs (includes imageUrl in info)
   let pairs = [];
   try {
     const url = `https://api.dexscreener.com/token-pairs/v1/solana/${encodeURIComponent(mint)}`;
     const res = await get(url);
     const json = JSON.parse(res.body);
     if (Array.isArray(json)) pairs = json;
-  } catch (_e) {
-    /* fall through */
+  } catch (e) {
+    logDebug('lookupMint token-pairs failed', e.message || e);
   }
 
   if (!pairs.length) {
@@ -55,22 +62,28 @@ export async function lookupMint(mint) {
       const res = await get(url);
       const json = JSON.parse(res.body);
       pairs = Array.isArray(json.pairs) ? json.pairs : [];
-    } catch (_e) {
-      /* fall through */
+    } catch (e) {
+      logDebug('lookupMint latest/tokens failed', e.message || e);
     }
   }
 
   if (pairs.length === 0) {
-    const prices = await fetchMintPrices([mint]);
-    const q = prices[mint];
-    if (!q) throw new Error('Mint not found on Solana DEXes');
-    return {
-      symbol: 'TOKEN',
-      name: 'Custom token',
-      price: q.price,
-      change24h: q.change24h,
-      imageUrl: `https://dd.dexscreener.com/ds-data/tokens/solana/${mint}.png`,
-    };
+    try {
+      const prices = await fetchMintPrices([mint]);
+      const q = prices[mint];
+      if (!q) throw new Error('Mint not found on Solana DEXes');
+      return {
+        symbol: 'TOKEN',
+        name: 'Custom token',
+        price: q.price,
+        change24h: q.change24h,
+        imageUrl: `https://dd.dexscreener.com/ds-data/tokens/solana/${mint}.png`,
+        mint,
+      };
+    } catch (e) {
+      logWarn('lookupMint fallback failed', e.message || e);
+      throw e;
+    }
   }
 
   const solPairs = pairs.filter(p => !p.chainId || p.chainId === 'solana');
@@ -78,7 +91,6 @@ export async function lookupMint(mint) {
     (a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0),
   )[0];
 
-  // Prefer the side of the pair that matches the requested mint (CA)
   const mintLc = mint.toLowerCase();
   let token = pool.baseToken || {};
   if ((token.address || '').toLowerCase() !== mintLc) {
@@ -86,11 +98,9 @@ export async function lookupMint(mint) {
       token = pool.quoteToken;
   }
 
-  // Collect mint-specific image URLs (never generic ticker art)
   let imageUrl = '';
   if (pool.info && pool.info.imageUrl) imageUrl = String(pool.info.imageUrl);
 
-  // Scan other pairs for better image metadata for this mint
   if (!imageUrl) {
     for (const p of solPairs.length ? solPairs : pairs) {
       const bt = p.baseToken || {};
@@ -105,7 +115,6 @@ export async function lookupMint(mint) {
     }
   }
 
-  // Always include DexScreener CA-keyed fallback (mint in path)
   if (!imageUrl)
     imageUrl = `https://dd.dexscreener.com/ds-data/tokens/solana/${mint}.png`;
 

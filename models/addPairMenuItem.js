@@ -5,7 +5,7 @@ import Clutter from 'gi://Clutter';
 import * as CryptoUtil from '../utils/cryptoUtil.js';
 import * as Settings from '../settings.js';
 import { KNOWN_COINS } from '../api/coingecko.js';
-import { isLikelyMint, shortMint, MAX_PANEL_COINS } from '../api/catalog.js';
+import { isLikelyMint, shortMint } from '../api/catalog.js';
 import { lookupMint } from '../api/jupiter.js';
 import { installCustomIcon } from '../utils/icons.js';
 
@@ -172,8 +172,9 @@ export const AddPairMenuItem = GObject.registerClass(
         }
       }
 
+      const maxPanel = Settings.getMaxPanelCoins();
       const activeCount = Settings.getCoins().filter(c => c.active).length;
-      const putOnPanel = activeCount < MAX_PANEL_COINS;
+      const putOnPanel = activeCount < maxPanel;
 
       const coin = {
         id,

@@ -1,11 +1,13 @@
 import { get } from './request.js';
+import { makeQuote } from './dexscreener.js';
+import { logDebug, logWarn } from '../utils/log.js';
 
 /**
  * Batch-fetch prices + 24h change for CoinGecko IDs.
  *
  * @param {string[]} ids
  * @param {string} vsCurrency
- * @returns {Promise<Record<string, {price: number, change24h: number|null}>>}
+ * @returns {Promise<Record<string, {price: number, change24h: number|null, source: string, timestamp: number}>>}
  */
 export async function fetchPrices(ids, vsCurrency = 'usd') {
   const unique = [...new Set(ids.filter(Boolean))];
@@ -18,24 +20,33 @@ export async function fetchPrices(ids, vsCurrency = 'usd') {
     `&vs_currencies=${encodeURIComponent(vs)}` +
     '&include_24hr_change=true';
 
-  const res = await get(url);
-  const json = JSON.parse(res.body);
-  const out = {};
+  try {
+    const res = await get(url);
+    const json = JSON.parse(res.body);
+    const out = {};
+    const now = Date.now();
 
-  for (const id of unique) {
-    const row = json[id];
-    if (!row || row[vs] === undefined || row[vs] === null) continue;
-    const changeKey = `${vs}_24h_change`;
-    out[id] = {
-      price: Number(row[vs]),
-      change24h:
+    for (const id of unique) {
+      const row = json[id];
+      if (!row || row[vs] === undefined || row[vs] === null) continue;
+      const changeKey = `${vs}_24h_change`;
+      const price = Number(row[vs]);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      out[id] = makeQuote(
+        price,
         row[changeKey] === undefined || row[changeKey] === null
           ? null
           : Number(row[changeKey]),
-    };
+        'coingecko',
+        now,
+      );
+    }
+    logDebug(`CoinGecko prices: ${Object.keys(out).length}/${unique.length}`);
+    return out;
+  } catch (e) {
+    logWarn('CoinGecko fetch failed', e.message || e);
+    return {};
   }
-
-  return out;
 }
 
 export function chartUrl(coingeckoId) {

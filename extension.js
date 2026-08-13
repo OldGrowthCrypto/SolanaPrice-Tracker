@@ -1,7 +1,7 @@
 /* extension.js — Solana Crypto Price Tracker (Old Growth)
  *
- * Forked from Crypto Price Tracker (GPL-2.0-or-later).
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * Forked from Crypto Price Tracker.
+ * SPDX-License-Identifier: MIT
  */
 
 import GObject from 'gi://GObject';
@@ -13,8 +13,6 @@ import { Extension as Ex } from 'resource:///org/gnome/shell/extensions/extensio
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import * as Util from 'resource:///org/gnome/shell/misc/util.js';
-
 import * as Settings from './settings.js';
 import * as CryptoUtil from './utils/cryptoUtil.js';
 import {
@@ -22,13 +20,17 @@ import {
   createCoinIconFromCoin,
   resolveIconStem,
 } from './utils/icons.js';
-import { formatPanelPrice, priceColor } from './utils/format.js';
-import { fetchQuotesForCoins } from './api/prices.js';
-import { MAX_PANEL_COINS } from './api/catalog.js';
+import {
+  formatPanelPrice,
+  priceColor,
+  panelStructureKey,
+} from './utils/format.js';
+import { fetchQuotesForCoins, isQuoteStale, STALE_MS } from './api/prices.js';
 import { CoinMenuItem } from './models/coinMenuItem.js';
-import { buildOptionsMenu } from './models/optionsMenu.js';
+import { buildActionBar } from './models/optionsMenu.js';
+import { logInfo } from './utils/log.js';
 
-const APP_VERSION = 10;
+const APP_VERSION = '2.0';
 
 const Indicator = GObject.registerClass(
   class Indicator extends PanelMenu.Button {
@@ -41,12 +43,18 @@ const Indicator = GObject.registerClass(
       this._refreshing = false;
       this._busy = false;
       this._lastError = null;
-      this._lastOkAt = 0; // seconds (monotonic-ish via real_time/1e6)
+      this._lastOkAt = 0;
       this._lastOkHadQuotes = false;
       this._panelChips = new Map();
       this._panelStructureKey = '';
       this._settings = Settings.getSettings();
       this._settingsSignals = [];
+      this._flashSources = new Map();
+      this._dragSource = null;
+      this._dragStageId = 0;
+      this._dragDropIndex = -1;
+
+      Settings.applyDebugLogging();
 
       this._panelBox = new St.BoxLayout({
         style_class: 'og-panel-box',
@@ -58,12 +66,13 @@ const Indicator = GObject.registerClass(
       this.add_child(this._panelBox);
       this._renderPanelPlaceholder();
 
+      // Dashboard: header → section → coins → status → compact action bar
       this._buildHeader();
-      this.menu.addMenuItem(buildOptionsMenu(this, extension));
-      this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+      this._buildDashboardSection();
       this._buildCoinList();
       this._buildStatus();
-      this._buildFooter();
+      this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+      this.menu.addMenuItem(buildActionBar(this, extension));
 
       for (const key of [
         'show-icons',
@@ -71,10 +80,26 @@ const Indicator = GObject.registerClass(
         'colorize-prices',
         'auto-compact',
         'refresh-interval',
+        'max-panel-coins',
+        'move-flash-threshold',
+        'alerts-enabled',
+        'alert-threshold-pct',
+        'alert-up-enabled',
+        'alert-down-enabled',
+        'alert-cooldown-sec',
+        'debug-logging',
       ]) {
         this._settingsSignals.push(
           this._settings.connect(`changed::${key}`, () => {
             if (key === 'refresh-interval') this._startRefreshLoop();
+            else if (key === 'debug-logging') Settings.applyDebugLogging();
+            else if (
+              key === 'alerts-enabled' ||
+              key === 'alert-threshold-pct' ||
+              key === 'alert-up-enabled' ||
+              key === 'alert-down-enabled'
+            )
+              this._refreshStatusText();
             else this._updatePanelLabel(true);
           }),
         );
@@ -94,6 +119,10 @@ const Indicator = GObject.registerClass(
       for (const c of this.coins) {
         if (c.setActionsEnabled) c.setActionsEnabled(!this._busy);
       }
+    }
+
+    _maxPanel() {
+      return Settings.getMaxPanelCoins();
     }
 
     _renderPanelPlaceholder() {
@@ -119,17 +148,27 @@ const Indicator = GObject.registerClass(
       const titleRow = new St.BoxLayout({
         vertical: false,
         x_expand: true,
+        y_expand: false,
         style_class: 'og-header-title-row',
       });
 
-      const logo = createCoinIcon(this._extension.path, 'brand', 48);
+      // Brand mark (square corners)
+      const logo = createCoinIcon(this._extension.path, 'brand', 64);
       logo.style_class = 'coin-icon og-brand-icon';
       logo.y_align = Clutter.ActorAlign.CENTER;
-      titleRow.add_child(logo);
+      logo.x_align = Clutter.ActorAlign.CENTER;
+      const logoWrap = new St.Bin({
+        child: logo,
+        style_class: 'og-brand-icon-wrap',
+        y_align: Clutter.ActorAlign.CENTER,
+        x_align: Clutter.ActorAlign.CENTER,
+      });
+      titleRow.add_child(logoWrap);
 
       const titles = new St.BoxLayout({
         vertical: true,
         x_expand: true,
+        y_align: Clutter.ActorAlign.CENTER,
         style_class: 'og-header-titles',
       });
 
@@ -137,20 +176,18 @@ const Indicator = GObject.registerClass(
         text: 'Solana Crypto Price Tracker',
         style_class: 'og-header-title',
       });
-      titleLbl.set_style('color: #111111; font-weight: 800;');
       titles.add_child(titleLbl);
 
       const subLbl = new St.Label({
-        text: 'Old Growth Crypto',
+        text: 'Tracking your favorite Solana tokens',
         style_class: 'og-header-subtitle',
       });
-      subLbl.set_style('color: #333333; font-weight: 600;');
       titles.add_child(subLbl);
       titleRow.add_child(titles);
 
       const refreshIcon = new St.Icon({
         icon_name: 'view-refresh-symbolic',
-        icon_size: 14,
+        icon_size: 16,
         style_class: 'popup-menu-icon',
       });
       const refreshBtn = new St.Button({
@@ -163,6 +200,33 @@ const Indicator = GObject.registerClass(
 
       headerItem.add_child(titleRow);
       this.menu.addMenuItem(headerItem);
+    }
+
+    _buildDashboardSection() {
+      const sectionItem = new PopupMenu.PopupBaseMenuItem({
+        reactive: false,
+        can_focus: false,
+        style_class: 'og-section-item',
+      });
+      const col = new St.BoxLayout({
+        vertical: true,
+        x_expand: true,
+        style_class: 'og-section-col',
+      });
+      col.add_child(
+        new St.Label({
+          text: 'WATCHLIST',
+          style_class: 'og-section-label',
+        }),
+      );
+      col.add_child(
+        new St.Label({
+          text: 'Drag ☰ or ↑↓ to reorder · switch = top bar',
+          style_class: 'og-section-hint',
+        }),
+      );
+      sectionItem.add_child(col);
+      this.menu.addMenuItem(sectionItem);
     }
 
     _buildCoinList() {
@@ -203,7 +267,6 @@ const Indicator = GObject.registerClass(
         style_class: 'og-status-row',
         x_expand: true,
       });
-      this._statusRow.set_style('color: #333333;');
       const statusItem = new PopupMenu.PopupBaseMenuItem({
         reactive: false,
         can_focus: false,
@@ -211,26 +274,6 @@ const Indicator = GObject.registerClass(
       });
       statusItem.add_child(this._statusRow);
       this.menu.addMenuItem(statusItem);
-    }
-
-    _buildFooter() {
-      const footerItem = new PopupMenu.PopupBaseMenuItem({
-        reactive: true,
-        can_focus: true,
-        style_class: 'og-footer-item',
-      });
-      footerItem.add_child(
-        new St.Label({
-          text: 'oldgrowthcrypto.com',
-          style_class: 'og-footer-link',
-          y_align: Clutter.ActorAlign.CENTER,
-          x_expand: true,
-        }),
-      );
-      footerItem.connect('activate', () => {
-        Util.spawnCommandLine('xdg-open https://oldgrowthcrypto.com');
-      });
-      this.menu.addMenuItem(footerItem);
     }
 
     _nowSec() {
@@ -249,9 +292,11 @@ const Indicator = GObject.registerClass(
 
     _refreshStatusText() {
       if (!this._statusRow) return;
+      const maxP = this._maxPanel();
       if (this._refreshing) {
         this._statusRow.text = 'Refreshing…';
-        this._statusRow.set_style('color: #333333;');
+        this._statusRow.remove_style_class_name('og-status-stale');
+        this._statusRow.remove_style_class_name('og-status-error');
         return;
       }
       if (this._lastError) {
@@ -263,23 +308,29 @@ const Indicator = GObject.registerClass(
           ? ` · last good ${this._formatAgo(this._nowSec() - this._lastOkAt)}`
           : '';
         this._statusRow.text = `Offline — ${msg}${ago}`;
-        this._statusRow.set_style('color: #c62828;');
+        this._statusRow.add_style_class_name('og-status-error');
+        this._statusRow.remove_style_class_name('og-status-stale');
         return;
       }
       if (!this._lastOkAt) {
         this._statusRow.text = 'Waiting for prices…';
-        this._statusRow.set_style('color: #333333;');
+        this._statusRow.remove_style_class_name('og-status-stale');
+        this._statusRow.remove_style_class_name('og-status-error');
         return;
       }
       const ago = this._formatAgo(this._nowSec() - this._lastOkAt);
       const onBar = this.coins.filter(c => c.activeCoin).length;
-      const stale = this._nowSec() - this._lastOkAt > 90;
+      const total = this.coins.length;
+      const stale = this._nowSec() - this._lastOkAt > STALE_MS / 1000;
+      const alertsOn = Settings.getAlertsEnabled();
+      const jump = Settings.getAlertThresholdPct();
+      const alertBit = alertsOn ? `alerts ±${jump}%` : 'alerts off';
       this._statusRow.text = stale
-        ? `Updated ${ago} · stale · bar ${onBar}/${MAX_PANEL_COINS}`
-        : `Updated ${ago} · bar ${onBar}/${MAX_PANEL_COINS}`;
-      this._statusRow.set_style(
-        stale ? 'color: #b36b00; font-weight: 600;' : 'color: #333333;',
-      );
+        ? `Updated ${ago} · STALE · ${total} coins · bar ${onBar}/${maxP} · ${alertBit}`
+        : `Updated ${ago} · ${total} coins · bar ${onBar}/${maxP} · ${alertBit}`;
+      if (stale) this._statusRow.add_style_class_name('og-status-stale');
+      else this._statusRow.remove_style_class_name('og-status-stale');
+      this._statusRow.remove_style_class_name('og-status-error');
     }
 
     _startStatusTicker() {
@@ -289,6 +340,8 @@ const Indicator = GObject.registerClass(
         5,
         () => {
           this._refreshStatusText();
+          // Re-tint panel if quotes aged into stale
+          this._updatePanelPricesOnly(this._activeSorted());
           return GLib.SOURCE_CONTINUE;
         },
       );
@@ -316,17 +369,16 @@ const Indicator = GObject.registerClass(
       this.coins = [];
       this.coinsScrollViewVbox.destroy_all_children();
 
-      // First-run seed only; never resurrect after user clears list
       let stored = Settings.ensureSeeded
         ? Settings.ensureSeeded()
         : Settings.getCoins();
 
+      // Pure user order (drag/↑↓) — dashboard list matches panel priority
       const sorted = [...stored].sort((a, b) => {
-        if (!!b.active !== !!a.active) return a.active ? -1 : 1;
-        const at = a.added_at || 0;
-        const bt = b.added_at || 0;
-        if (bt !== at) return bt - at;
-        return 0;
+        const ao = typeof a.order === 'number' ? a.order : 0;
+        const bo = typeof b.order === 'number' ? b.order : 0;
+        if (ao !== bo) return ao - bo;
+        return (a.added_at || 0) - (b.added_at || 0);
       });
 
       for (const coin of sorted) {
@@ -350,12 +402,149 @@ const Indicator = GObject.registerClass(
         this.coinsScrollViewVbox.add_child(row);
       }
 
-      const rowH = 50;
-      const want = Math.max(sorted.length * rowH, rowH * 3);
-      this._coinsScrollview.set_height(CryptoUtil.getHeight(want));
+      this._fitCoinListHeight(sorted.length);
       this._updatePanelLabel(true);
       this.setBusy(false);
       this.refreshPrices(true);
+    }
+
+    /**
+     * Size coin list tightly to real content — no empty gap under last coin.
+     * ≤5 coins: exact content height, no scrollbar.
+     * >5 coins: viewport for 5 rows + scroll.
+     * @param {number} count
+     */
+    _fitCoinListHeight(count) {
+      const VISIBLE = 5;
+      // Conservative first estimate (compact rows ~36–40px)
+      const ROW_H = 40;
+      const SPACING = 4;
+      const PAD = 4;
+
+      const rowsForHeight = n => {
+        if (n <= 0) return ROW_H + PAD;
+        return n * ROW_H + Math.max(0, n - 1) * SPACING + PAD;
+      };
+
+      const n = Math.max(count, 0);
+      const estimate =
+        n <= VISIBLE ? rowsForHeight(Math.max(n, 1)) : rowsForHeight(VISIBLE);
+
+      try {
+        this._coinsScrollview.set_policy(
+          St.PolicyType.NEVER,
+          n <= VISIBLE ? St.PolicyType.NEVER : St.PolicyType.AUTOMATIC,
+        );
+      } catch (_e) {
+        /* ignore */
+      }
+
+      this._coinsScrollview.set_height(estimate);
+
+      // Measure after layout (twice — preferred height is reliable after allocate)
+      const measure = () => {
+        try {
+          this._measureAndFitCoinList(n, VISIBLE);
+        } catch (_e) {
+          /* ignore */
+        }
+      };
+      GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+        measure();
+        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+          measure();
+          return GLib.SOURCE_REMOVE;
+        });
+        return GLib.SOURCE_REMOVE;
+      });
+    }
+
+    /**
+     * Snap scrollview height to actual list content (kills empty bottom gap).
+     * @param {number} count
+     * @param {number} visibleMax
+     */
+    _measureAndFitCoinList(count, visibleMax) {
+      if (!this._coinsScrollview || !this.coinsScrollViewVbox) return;
+
+      // Prefer natural height of the whole list box (includes spacing + padding)
+      let contentH = 0;
+      try {
+        const w =
+          this._coinsScrollview.width > 0
+            ? this._coinsScrollview.width
+            : -1;
+        const [, nat] = this.coinsScrollViewVbox.get_preferred_height(w);
+        if (nat > 0) contentH = nat;
+      } catch (_e) {
+        /* fall through */
+      }
+
+      // Fallback: sum children
+      if (contentH < 8 && this.coins?.length) {
+        const spacing = 4;
+        let total = 4;
+        for (let i = 0; i < this.coins.length; i++) {
+          try {
+            const row = this.coins[i];
+            let h = row.height > 0 ? row.height : 0;
+            if (h < 8) {
+              const [, nat] = row.get_preferred_height(-1);
+              h = nat || 38;
+            }
+            total += h;
+            if (i > 0) total += spacing;
+          } catch (_e) {
+            total += 38;
+          }
+        }
+        contentH = total;
+      }
+
+      if (contentH < 8) return;
+
+      if (count <= visibleMax) {
+        // Exact fit — no phantom empty row under the list
+        this._coinsScrollview.set_height(Math.ceil(contentH));
+        try {
+          this._coinsScrollview.set_policy(
+            St.PolicyType.NEVER,
+            St.PolicyType.NEVER,
+          );
+        } catch (_e) {
+          /* ignore */
+        }
+      } else {
+        // Cap at ~5 rows worth of measured content
+        const ratio = visibleMax / Math.max(count, 1);
+        const view = Math.ceil(contentH * ratio);
+        // Better: measure first visibleMax children only
+        let viewH = 4;
+        const spacing = 4;
+        for (let i = 0; i < visibleMax && i < this.coins.length; i++) {
+          try {
+            const row = this.coins[i];
+            let h = row.height > 0 ? row.height : 0;
+            if (h < 8) {
+              const [, nat] = row.get_preferred_height(-1);
+              h = nat || 38;
+            }
+            viewH += h;
+            if (i > 0) viewH += spacing;
+          } catch (_e) {
+            viewH += 38;
+          }
+        }
+        this._coinsScrollview.set_height(Math.max(viewH, view));
+        try {
+          this._coinsScrollview.set_policy(
+            St.PolicyType.NEVER,
+            St.PolicyType.AUTOMATIC,
+          );
+        } catch (_e) {
+          /* ignore */
+        }
+      }
     }
 
     onCoinAdded(coinTitle) {
@@ -416,19 +605,27 @@ const Indicator = GObject.registerClass(
           id: c.id,
           coingecko_id: c.coingecko_id,
           mint: c.mint,
+          title: c.title,
+          key: c.key,
+          symbol: c.symbol,
         }));
         const vs = Settings.getVsCurrency();
         const quotes = await fetchQuotesForCoins(payload, vs);
 
         for (const coin of this.coins) {
-          if (quotes[coin.id]) coin.applyQuote(quotes[coin.id]);
+          if (quotes[coin.id]) {
+            const prev = coin.getQuote && coin.getQuote();
+            coin.applyQuote(quotes[coin.id]);
+            this._maybeFlash(coin, prev, quotes[coin.id]);
+          }
         }
+
+        this._checkPriceAlerts(quotes);
 
         this._lastError = null;
         this._lastOkAt = this._nowSec();
         this._lastOkHadQuotes = Object.keys(quotes).length > 0;
 
-        // In-place panel price update when structure unchanged
         this._updatePanelLabel(false);
         this._refreshStatusText();
       } catch (e) {
@@ -442,27 +639,253 @@ const Indicator = GObject.registerClass(
       }
     }
 
+    _maybeFlash(coin, prev, next) {
+      const thr = Settings.getMoveFlashThreshold();
+      if (!thr || thr <= 0) return;
+      if (!next || next.change24h === null || next.change24h === undefined)
+        return;
+      if (Math.abs(next.change24h) < thr) return;
+      // Only flash when we got a fresh non-stale quote
+      if (isQuoteStale(next)) return;
+      this._flashPanelChip(coin.id, next.change24h > 0);
+    }
+
+    _flashPanelChip(coinId, up) {
+      const chip = this._panelChips.get(coinId);
+      if (!chip || !chip.chip) return;
+      const prevId = this._flashSources.get(coinId);
+      if (prevId) {
+        GLib.source_remove(prevId);
+        this._flashSources.delete(coinId);
+      }
+      chip.chip.add_style_class_name(up ? 'og-chip-flash-up' : 'og-chip-flash-down');
+      const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 900, () => {
+        try {
+          chip.chip.remove_style_class_name('og-chip-flash-up');
+          chip.chip.remove_style_class_name('og-chip-flash-down');
+        } catch (_e) {
+          /* ignore */
+        }
+        this._flashSources.delete(coinId);
+        return GLib.SOURCE_REMOVE;
+      });
+      this._flashSources.set(coinId, id);
+    }
+
+    /**
+     * Jump alerts between refresh samples.
+     * Per-coin: alert_enabled + alert_up_pct / alert_down_pct (from coin alert popup).
+     * Global master switch must be ON; global thresholds apply when coin has no custom %.
+     */
+    _checkPriceAlerts(quotes) {
+      const globalOn = Settings.getAlertsEnabled();
+      const globalThr = Settings.getAlertThresholdPct() || 3;
+      const globalUp = Settings.getAlertUpEnabled();
+      const globalDown = Settings.getAlertDownEnabled();
+      const cooldownMs = (Settings.getAlertCooldownSec() || 120) * 1000;
+      const now = Date.now();
+      const state = Settings.getAlertState() || {};
+      let changed = false;
+
+      // Snapshot latest stored prefs (alert flags live on settings coins)
+      const storedById = new Map(
+        Settings.getCoins().map(c => [c.id, c]),
+      );
+
+      for (const coin of this.coins) {
+        const q = quotes[coin.id];
+        if (!q || !q.price || !Number.isFinite(q.price) || q.price <= 0)
+          continue;
+        if (isQuoteStale(q)) continue;
+
+        const stored = storedById.get(coin.id) || {};
+        // Per-coin enable takes priority; else global master for all
+        const coinEnabled = stored.alert_enabled === true;
+        const useGlobal = !coinEnabled && globalOn;
+        if (!coinEnabled && !useGlobal) {
+          // Still track price baseline when disabled so enabling later is clean
+          let entry = state[coin.id];
+          if (typeof entry === 'number') entry = { price: entry, lastNotify: 0 };
+          state[coin.id] = {
+            price: q.price,
+            lastNotify: (entry && entry.lastNotify) || 0,
+          };
+          changed = true;
+          continue;
+        }
+
+        const upThr =
+          stored.alert_up_pct > 0 ? Number(stored.alert_up_pct) : globalThr;
+        const downThr =
+          stored.alert_down_pct > 0
+            ? Number(stored.alert_down_pct)
+            : globalThr;
+        const allowUp = coinEnabled ? upThr > 0 : globalUp;
+        const allowDown = coinEnabled ? downThr > 0 : globalDown;
+
+        let entry = state[coin.id];
+        if (typeof entry === 'number') entry = { price: entry, lastNotify: 0 };
+        if (!entry || entry.price == null) {
+          state[coin.id] = { price: q.price, lastNotify: 0 };
+          changed = true;
+          continue;
+        }
+
+        const prev = Number(entry.price);
+        if (!prev || prev <= 0) {
+          state[coin.id] = {
+            price: q.price,
+            lastNotify: entry.lastNotify || 0,
+          };
+          changed = true;
+          continue;
+        }
+
+        const pct = ((q.price - prev) / prev) * 100;
+        const isUp = allowUp && pct >= upThr;
+        const isDown = allowDown && pct <= -downThr;
+
+        if (isUp || isDown) {
+          const lastN = entry.lastNotify || 0;
+          if (now - lastN >= cooldownMs) {
+            const dir = isUp ? '▲ pump' : '▼ dump';
+            const thrUsed = isUp ? upThr : downThr;
+            const sign = pct > 0 ? '+' : '';
+            const priceTxt = formatPanelPrice(q.price);
+            Main.notify(
+              `${coin.title} ${dir} ${sign}${pct.toFixed(2)}%`,
+              `${priceTxt} · trigger ${isUp ? '+' : '−'}${thrUsed}%`,
+            );
+            this._flashPanelChip(coin.id, isUp);
+            entry.lastNotify = now;
+          }
+        }
+
+        entry.price = q.price;
+        state[coin.id] = entry;
+        changed = true;
+      }
+      if (changed) Settings.setAlertState(state);
+    }
+
+    // —— Drag-to-reorder ——
+    beginCoinDrag(coinItem, _event) {
+      this._endCoinDrag(false);
+      this._dragSource = coinItem;
+      this._dragDropIndex = this.coins.indexOf(coinItem);
+      if (coinItem.setDragging) coinItem.setDragging(true);
+      try {
+        this._dragStageId = global.stage.connect(
+          'captured-event',
+          (_actor, ev) => this._onDragCaptured(ev),
+        );
+      } catch (e) {
+        console.warn('OldGrowthPriceTracker: drag capture failed', e);
+      }
+    }
+
+    _onDragCaptured(ev) {
+      if (!this._dragSource) return Clutter.EVENT_PROPAGATE;
+      const type = ev.type();
+      if (type === Clutter.EventType.MOTION) {
+        const [, y] = ev.get_coords();
+        this._updateDropTargetAtY(y);
+        return Clutter.EVENT_STOP;
+      }
+      if (
+        type === Clutter.EventType.BUTTON_RELEASE ||
+        type === Clutter.EventType.TOUCH_END
+      ) {
+        this._endCoinDrag(true);
+        return Clutter.EVENT_STOP;
+      }
+      if (type === Clutter.EventType.KEY_PRESS) {
+        // Escape cancel
+        try {
+          if (ev.get_key_symbol() === Clutter.KEY_Escape) {
+            this._endCoinDrag(false);
+            return Clutter.EVENT_STOP;
+          }
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+      return Clutter.EVENT_PROPAGATE;
+    }
+
+    _updateDropTargetAtY(y) {
+      let best = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < this.coins.length; i++) {
+        const row = this.coins[i];
+        try {
+          const [, ry] = row.get_transformed_position();
+          const h = row.height || 56;
+          const mid = ry + h / 2;
+          const d = Math.abs(y - mid);
+          if (d < bestDist) {
+            bestDist = d;
+            best = i;
+          }
+          if (row.setDropTarget) row.setDropTarget(false);
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+      this._dragDropIndex = best;
+      if (best >= 0 && this.coins[best] && this.coins[best].setDropTarget)
+        this.coins[best].setDropTarget(true);
+    }
+
+    _endCoinDrag(commit) {
+      if (this._dragStageId) {
+        try {
+          global.stage.disconnect(this._dragStageId);
+        } catch (_e) {
+          /* ignore */
+        }
+        this._dragStageId = 0;
+      }
+      const source = this._dragSource;
+      const dropIdx = this._dragDropIndex;
+      this._dragSource = null;
+      this._dragDropIndex = -1;
+
+      for (const c of this.coins) {
+        if (c.setDropTarget) c.setDropTarget(false);
+        if (c.setDragging) c.setDragging(false);
+      }
+
+      if (!commit || !source || dropIdx < 0) return;
+      const fromIdx = this.coins.findIndex(c => c.id === source.id);
+      if (fromIdx === -1 || fromIdx === dropIdx) return;
+
+      if (Settings.reorderCoin(source.id, dropIdx)) {
+        if (this._statusRow) this._statusRow.text = `Moved ${source.title}`;
+        this.rebuildCoins();
+      }
+    }
+
+    /**
+     * Active coins sorted by user order (settings list order field).
+     */
     _activeSorted() {
+      const maxP = this._maxPanel();
       let active = this.coins.filter(c => c.activeCoin);
-      const order = { BTC: 0, SOL: 1, JUP: 2, BONK: 3, JTO: 4 };
       active = [...active].sort((a, b) => {
-        const ao = order[a.title] !== undefined ? order[a.title] : 50;
-        const bo = order[b.title] !== undefined ? order[b.title] : 50;
+        const ao = typeof a.order === 'number' ? a.order : 999;
+        const bo = typeof b.order === 'number' ? b.order : 999;
         if (ao !== bo) return ao - bo;
         return 0;
       });
-      if (active.length > MAX_PANEL_COINS)
-        active = active.slice(0, MAX_PANEL_COINS);
+      if (active.length > maxP) active = active.slice(0, maxP);
       return active;
     }
 
     _structureKey(active) {
-      return active.map(c => c.id).join('|');
+      return panelStructureKey(active);
     }
 
-    /**
-     * @param {boolean} forceStructure rebuild chips even if same coins
-     */
     _updatePanelLabel(forceStructure = true) {
       const active = this._activeSorted();
       const key = this._structureKey(active);
@@ -490,11 +913,14 @@ const Indicator = GObject.registerClass(
         const price =
           q && q.price !== null && q.price !== undefined ? q.price : null;
         const change = q ? q.change24h : null;
+        const stale = q ? isQuoteStale(q) : false;
         chip.priceLbl.text =
           price === null ? '…' : formatPanelPrice(price);
         chip.priceLbl.set_style(
-          `color: ${priceColor(change, colorize)}; font-weight: 700;`,
+          `color: ${priceColor(change, colorize, stale)}; font-weight: 700;`,
         );
+        if (stale) chip.chip.add_style_class_name('og-panel-chip-stale');
+        else chip.chip.remove_style_class_name('og-panel-chip-stale');
       }
     }
 
@@ -517,7 +943,7 @@ const Indicator = GObject.registerClass(
 
       const showIcons = Settings.getShowIcons();
       let showTickers = Settings.getShowTickers();
-      // Auto-compact: hide tickers when 4+ coins on bar
+      // Auto-compact: with 4+ coins prefer icon + price only
       if (
         Settings.getAutoCompact &&
         Settings.getAutoCompact() &&
@@ -561,7 +987,6 @@ const Indicator = GObject.registerClass(
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'og-panel-ticker',
           });
-          nameLbl.set_style('color: #ffffff; font-weight: 700;');
           chip.add_child(nameLbl);
         }
 
@@ -569,15 +994,17 @@ const Indicator = GObject.registerClass(
         const price =
           q && q.price !== null && q.price !== undefined ? q.price : null;
         const change = q ? q.change24h : null;
+        const stale = q ? isQuoteStale(q) : false;
         const priceLbl = new St.Label({
           text: price === null ? '…' : formatPanelPrice(price),
           y_align: Clutter.ActorAlign.CENTER,
           style_class: 'og-panel-price',
         });
         priceLbl.set_style(
-          `color: ${priceColor(change, colorize)}; font-weight: 700;`,
+          `color: ${priceColor(change, colorize, stale)}; font-weight: 700;`,
         );
         chip.add_child(priceLbl);
+        if (stale) chip.add_style_class_name('og-panel-chip-stale');
 
         this._panelBox.add_child(chip);
         this._panelChips.set(coin.id, { chip, priceLbl, coin });
@@ -588,7 +1015,6 @@ const Indicator = GObject.registerClass(
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'og-panel-sep',
           });
-          sep.set_style('color: #cccccc; padding: 0 4px; opacity: 0.75;');
           this._panelBox.add_child(sep);
         }
       }
@@ -621,8 +1047,17 @@ const Indicator = GObject.registerClass(
     }
 
     destroy() {
+      this._endCoinDrag(false);
       this._stopRefreshLoop();
       this._stopStatusTicker();
+      for (const id of this._flashSources.values()) {
+        try {
+          GLib.source_remove(id);
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+      this._flashSources.clear();
       if (this._settings && this._settingsSignals) {
         for (const id of this._settingsSignals) {
           try {
@@ -649,9 +1084,7 @@ const Indicator = GObject.registerClass(
 
 export default class Extension extends Ex {
   enable() {
-    console.log(
-      `Solana Crypto Price Tracker v${APP_VERSION} ready (${this.uuid})`,
-    );
+    logInfo(`v${APP_VERSION} enable (${this.uuid})`);
     this._indicator = new Indicator(this);
     Main.panel.addToStatusArea(this.uuid, this._indicator);
   }

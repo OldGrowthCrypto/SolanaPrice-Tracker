@@ -3,10 +3,11 @@
   <schema
       id="org.gnome.shell.extensions.oldgrowth-price-tracker"
       path="/org/gnome/shell/extensions/oldgrowth-price-tracker/">
+    <!-- Watchlist lives here as JSON. Defaults are seeded in code on first run. -->
     <key type="s" name="coins">
-      <default><![CDATA['{"coins":[{"id":"og-btc-001","symbol":"BTC/USD","active":true,"title":"BTC","coingecko_id":"bitcoin","mint":"","icon":"btc","pinned":false,"subtitle":"Bitcoin","key":"btc"},{"id":"og-sol-002","symbol":"SOL/USD","active":true,"title":"SOL","coingecko_id":"solana","mint":"So11111111111111111111111111111111111111112","icon":"sol","pinned":false,"subtitle":"Solana","key":"sol"},{"id":"og-jup-003","symbol":"JUP/USD","active":true,"title":"JUP","coingecko_id":"jupiter-exchange-solana","mint":"JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN","icon":"jup","pinned":false,"subtitle":"Jupiter","key":"jup"},{"id":"og-bonk-004","symbol":"BONK/USD","active":true,"title":"BONK","coingecko_id":"bonk","mint":"DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263","icon":"bonk","pinned":false,"subtitle":"Bonk","key":"bonk"},{"id":"og-jto-005","symbol":"JTO/USD","active":true,"title":"JTO","coingecko_id":"jito-governance-token","mint":"jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL","icon":"jto","pinned":false,"subtitle":"Jito","key":"jto"},{"id":"og-pump-006","symbol":"PUMP/USD","active":false,"title":"PUMP","coingecko_id":"pump-fun","mint":"pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn","icon":"pump","pinned":false,"subtitle":"Pump.fun","key":"pump"},{"id":"og-render-007","symbol":"RENDER/USD","active":false,"title":"RENDER","coingecko_id":"render-token","mint":"rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof","icon":"render","pinned":false,"subtitle":"Render","key":"render"},{"id":"og-pengu-008","symbol":"PENGU/USD","active":false,"title":"PENGU","coingecko_id":"pudgy-penguins","mint":"2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv","icon":"pengu","pinned":false,"subtitle":"Pudgy Penguins","key":"pengu"},{"id":"og-trump-009","symbol":"TRUMP/USD","active":false,"title":"TRUMP","coingecko_id":"official-trump","mint":"6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN","icon":"trump","pinned":false,"subtitle":"Official Trump","key":"trump"},{"id":"og-pyth-010","symbol":"PYTH/USD","active":false,"title":"PYTH","coingecko_id":"pyth-network","mint":"HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3","icon":"pyth","pinned":false,"subtitle":"Pyth Network","key":"pyth"},{"id":"og-wif-011","symbol":"WIF/USD","active":false,"title":"WIF","coingecko_id":"dogwifcoin","mint":"EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm","icon":"wif","pinned":false,"subtitle":"dogwifhat","key":"wif"}]}']]></default>
+      <default><![CDATA['{"coins":[]}']]></default>
       <summary>Tracked coins JSON</summary>
-      <description>JSON object with a coins array of watchlist entries.</description>
+      <description>JSON object with a coins array of watchlist entries. Empty until first-run seed.</description>
     </key>
     <key type="s" name="vs-currency">
       <default>'usd'</default>
@@ -17,6 +18,11 @@
       <default>30</default>
       <summary>Refresh interval (seconds)</summary>
       <description>How often to refresh prices. Minimum 20s.</description>
+    </key>
+    <key type="i" name="max-panel-coins">
+      <default>5</default>
+      <summary>Max coins on the top bar</summary>
+      <description>How many coins can be pinned to the panel at once (1–8).</description>
     </key>
     <key type="b" name="show-icons">
       <default>true</default>
@@ -34,9 +40,54 @@
       <description>When false, all panel prices stay white. When true, up=green and down=red.</description>
     </key>
     <key type="b" name="auto-compact">
-      <default>true</default>
+      <default>false</default>
       <summary>Auto-compact top bar with 4+ coins</summary>
-      <description>When 4 or 5 coins are on the bar, hide tickers and show icon + price only (if show-tickers is on).</description>
+      <description>When 4+ coins are on the bar, hide tickers and show icon + price only. Off by default.</description>
+    </key>
+    <key type="d" name="move-flash-threshold">
+      <default>0</default>
+      <summary>Panel flash threshold (percent)</summary>
+      <description>Flash panel chip when absolute 24h change exceeds this percent. 0 = disabled.</description>
+    </key>
+    <key type="b" name="alerts-enabled">
+      <default>false</default>
+      <summary>Desktop price alerts</summary>
+      <description>Show a GNOME notification when a coin jumps quickly past the threshold between refreshes.</description>
+    </key>
+    <key type="d" name="alert-threshold-pct">
+      <default>3</default>
+      <summary>Jump alert threshold (percent)</summary>
+      <description>Notify when price moves this many percent up or down since the last sample (quick jump).</description>
+    </key>
+    <key type="b" name="alert-up-enabled">
+      <default>true</default>
+      <summary>Alert on quick pumps</summary>
+      <description>Notify when price jumps upward past the threshold.</description>
+    </key>
+    <key type="b" name="alert-down-enabled">
+      <default>true</default>
+      <summary>Alert on quick dumps</summary>
+      <description>Notify when price jumps downward past the threshold.</description>
+    </key>
+    <key type="i" name="alert-cooldown-sec">
+      <default>120</default>
+      <summary>Alert cooldown (seconds)</summary>
+      <description>Minimum seconds between notifications for the same coin.</description>
+    </key>
+    <key type="s" name="alert-state">
+      <default><![CDATA['{}']]></default>
+      <summary>Alert state JSON</summary>
+      <description>Internal map of coinId → {price, lastNotify} to avoid spam.</description>
+    </key>
+    <key type="s" name="default-chart-provider">
+      <default>'dexscreener'</default>
+      <summary>Default chart site</summary>
+      <description>dexscreener, birdeye, or jupiter — used when a coin has no override.</description>
+    </key>
+    <key type="b" name="debug-logging">
+      <default>false</default>
+      <summary>Debug logging</summary>
+      <description>Verbose API/cache logs in journalctl (prefix OldGrowthPriceTracker).</description>
     </key>
     <key type="b" name="seeded">
       <default>false</default>
